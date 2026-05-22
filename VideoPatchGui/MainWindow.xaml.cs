@@ -16,9 +16,8 @@ public sealed partial class MainWindow : Window
 {
     private const string TimeFormatHint = "时:分:秒，例如 00:03:12";
     private const string SettingsFileName = "settings.json";
+    private const string LogDirectoryName = "logs";
 
-    private static readonly string[] Loglevels = ["", "quiet", "panic", "fatal", "error", "warning", "info", "verbose", "debug"];
-    private static readonly string[] ConcatModes = ["copy", "encode"];
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -26,6 +25,8 @@ public sealed partial class MainWindow : Window
 
     private readonly ObservableCollection<SegmentConfig> _segments = new();
     private readonly IntPtr _windowHandle;
+    private readonly object _logLock = new();
+    private readonly string _logFilePath;
 
     private string? _currentConfigPath;
     private CancellationTokenSource? _runCts;
@@ -38,11 +39,13 @@ public sealed partial class MainWindow : Window
         Title = "视频修补工具";
         SystemBackdrop = new MicaBackdrop();
         _windowHandle = WindowNative.GetWindowHandle(this);
+        _logFilePath = CreateLogFilePath();
 
         ConfigureWindow();
         InitializeControls();
         RefreshFfmpegStatus();
         LoadDefaultConfigIfPresent();
+        AppendLog("应用启动。");
         RootGrid.Loaded += RootGrid_Loaded;
     }
 
@@ -71,16 +74,13 @@ public sealed partial class MainWindow : Window
             appWindow.SetIcon(iconPath);
         }
 
-        appWindow.Resize(new SizeInt32(1080, 1720));
+        appWindow.Resize(new SizeInt32(1080, 1220));
     }
 
     private void InitializeControls()
     {
-        LoglevelComboBox.ItemsSource = Loglevels;
-        LoglevelComboBox.SelectedItem = "warning";
-
-        ConcatModeComboBox.ItemsSource = ConcatModes;
-        ConcatModeComboBox.SelectedItem = "copy";
+        ConcatModeComboBox.ItemsSource = ConcatModes.DisplayNames;
+        ConcatModeComboBox.SelectedItem = ConcatModes.Fast;
 
         SegmentsList.ItemsSource = _segments;
     }
@@ -98,10 +98,10 @@ public sealed partial class MainWindow : Window
             Spacing = 12,
             MaxWidth = 620,
         };
-        contentPanel.Children.Add(MakeNoticeSection("功能简介", "本工具用于将原视频中的一个或多个指定时间段替换为补丁视频，并输出修补后的新视频。支持直接复制编码参数的快速修补（copy 模式）和重新编码的兼容性更强的修补（encode 模式，更慢）。"));
+        contentPanel.Children.Add(MakeNoticeSection("功能简介", "本工具用于将原视频中的一个或多个指定时间段替换为补丁视频，并输出修补后的新视频。支持直接复制编码参数的快速拼接，以及兼容性更强但速度更慢的重新编码。"));
         contentPanel.Children.Add(MakeNoticeSection("适用场景", "适合处理局部画面或声音错误、替换短片段、修正片头片尾、重新拼接少量补丁片段等场景。"));
         contentPanel.Children.Add(MakeNoticeSection("磁盘空间要求", "处理过程会在工作目录中生成临时切片和拼接文件。建议预留至少为原视频、补丁视频和输出文件合计大小 2 到 3 倍的可用空间。"));
-        contentPanel.Children.Add(MakeNoticeSection("视频文件要求", "补丁片段时间必须有效且不能重叠；copy 模式要求原视频与补丁视频编码参数兼容，不兼容时请改用 encode 模式。"));
+        contentPanel.Children.Add(MakeNoticeSection("视频文件要求", "补丁片段时间必须有效且不能重叠；快速拼接要求原视频与补丁视频编码参数兼容，不兼容时请改用重新编码（更慢）。"));
         contentPanel.Children.Add(MakeNoticeSection("重要提醒！", "修补完成后，请务必自行检查输出视频的画面、声音、时长、同步情况和关键片段内容，确认无误后再用于正式场景！"));
         contentPanel.Children.Add(dontShowAgainCheckBox);
 
@@ -187,6 +187,69 @@ public sealed partial class MainWindow : Window
         return Path.Combine(baseDirectory, "VideoPatch", SettingsFileName);
     }
 
+    private static string CreateLogFilePath()
+    {
+        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
+        var fileName = $"VideoPatch_{timestamp}.log";
+
+        foreach (var directory in GetCandidateLogDirectories())
+        {
+            try
+            {
+                Directory.CreateDirectory(directory);
+                var path = GetUniqueLogPath(directory, fileName);
+                File.WriteAllText(path, $"视频修补工具日志{Environment.NewLine}");
+                return path;
+            }
+            catch
+            {
+                // Try the next writable location.
+            }
+        }
+
+        var fallbackPath = Path.Combine(Path.GetTempPath(), GetUniqueLogFileName(fileName));
+        File.WriteAllText(fallbackPath, $"视频修补工具日志{Environment.NewLine}");
+        return fallbackPath;
+    }
+
+    private static IEnumerable<string> GetCandidateLogDirectories()
+    {
+        yield return Path.Combine(AppContext.BaseDirectory, LogDirectoryName);
+
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (!string.IsNullOrWhiteSpace(localAppData))
+        {
+            yield return Path.Combine(localAppData, "VideoPatch", LogDirectoryName);
+        }
+    }
+
+    private static string GetUniqueLogPath(string directory, string fileName)
+    {
+        var path = Path.Combine(directory, fileName);
+        if (!File.Exists(path))
+        {
+            return path;
+        }
+
+        var name = Path.GetFileNameWithoutExtension(fileName);
+        var extension = Path.GetExtension(fileName);
+        for (var index = 1; ; index++)
+        {
+            path = Path.Combine(directory, $"{name}_{index}{extension}");
+            if (!File.Exists(path))
+            {
+                return path;
+            }
+        }
+    }
+
+    private static string GetUniqueLogFileName(string fileName)
+    {
+        var name = Path.GetFileNameWithoutExtension(fileName);
+        var extension = Path.GetExtension(fileName);
+        return $"{name}_{Guid.NewGuid():N}{extension}";
+    }
+
     private async void OpenConfig_Click(object sender, RoutedEventArgs e)
     {
         var path = await PickOpenFilePathAsync("打开配置", [".json"]);
@@ -204,11 +267,6 @@ public sealed partial class MainWindow : Window
     private async void SaveConfigAs_Click(object sender, RoutedEventArgs e)
     {
         await SaveConfigAsync(saveAs: true);
-    }
-
-    private void ClearLog_Click(object sender, RoutedEventArgs e)
-    {
-        LogTextBox.Text = "";
     }
 
     private async void BrowseInput_Click(object sender, RoutedEventArgs e)
@@ -347,10 +405,7 @@ public sealed partial class MainWindow : Window
         WorkdirTextBox.Text = string.IsNullOrWhiteSpace(config.Workdir) ? "_patch_tmp" : config.Workdir;
         OverwriteCheckBox.IsChecked = config.Ffmpeg.Overwrite;
 
-        var loglevel = config.Ffmpeg.Loglevel ?? "";
-        LoglevelComboBox.SelectedItem = Loglevels.FirstOrDefault(item => string.Equals(item, loglevel, StringComparison.OrdinalIgnoreCase)) ?? "warning";
-
-        ConcatModeComboBox.SelectedItem = ConcatModes.FirstOrDefault(item => string.Equals(item, config.Concat.Mode, StringComparison.OrdinalIgnoreCase)) ?? "copy";
+        ConcatModeComboBox.SelectedItem = ConcatModes.Normalize(config.Concat.Mode);
 
         _segments.Clear();
         foreach (var segment in config.Segments)
@@ -399,11 +454,11 @@ public sealed partial class MainWindow : Window
             Ffmpeg = new FfmpegConfig
             {
                 Overwrite = OverwriteCheckBox.IsChecked == true,
-                Loglevel = (LoglevelComboBox.SelectedItem as string)?.Trim(),
+                Loglevel = "warning",
             },
             Concat = new ConcatConfig
             {
-                Mode = (ConcatModeComboBox.SelectedItem as string) ?? "copy",
+                Mode = ConcatModes.Normalize(ConcatModeComboBox.SelectedItem as string),
                 Container = "mp4",
             },
             Segments = _segments
@@ -469,7 +524,7 @@ public sealed partial class MainWindow : Window
             _runCts = new CancellationTokenSource();
             var patcher = new VideoPatcher(ffmpegPath, AppendLog, UpdateProgress);
             await patcher.RunAsync(config, baseDirectory, _runCts.Token);
-            await ShowInfoAsync("视频修补完成。", "完成");
+            await ShowInfoAsync($"视频修补完成。\n\n日志文件：{_logFilePath}", "完成");
         }
         catch (OperationCanceledException)
         {
@@ -478,7 +533,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             AppendLog("失败: " + ex.Message);
-            ShowError(ex.Message);
+            ShowError($"{ex.Message}\n\n日志文件：{_logFilePath}");
         }
         finally
         {
@@ -543,14 +598,17 @@ public sealed partial class MainWindow : Window
 
     private void AppendLog(string message)
     {
-        if (!DispatcherQueue.HasThreadAccess)
+        try
         {
-            _ = DispatcherQueue.TryEnqueue(() => AppendLog(message));
-            return;
+            lock (_logLock)
+            {
+                File.AppendAllText(_logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}");
+            }
         }
-
-        LogTextBox.Text += $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}";
-        LogTextBox.SelectionStart = LogTextBox.Text.Length;
+        catch
+        {
+            // Logging must never interrupt video processing.
+        }
     }
 
     private async Task<string?> PickOpenFilePathAsync(string title, IReadOnlyList<string> extensions)

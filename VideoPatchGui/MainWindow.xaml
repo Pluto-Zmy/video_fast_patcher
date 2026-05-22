@@ -5,7 +5,7 @@
     xmlns:local="using:VideoPatchGui"
     Title="视频修补工具">
 
-    <Grid x:Name="RootGrid" Padding="24,18,24,20" RowDefinitions="Auto,Auto,*,220,Auto" RowSpacing="16">
+    <Grid x:Name="RootGrid" Padding="24,18,24,20" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="16">
         <CommandBar
             x:Name="Toolbar"
             Grid.Row="0"
@@ -25,11 +25,6 @@
             <AppBarButton Label="另存为" Click="SaveConfigAs_Click">
                 <AppBarButton.Icon>
                     <SymbolIcon Symbol="SaveLocal" />
-                </AppBarButton.Icon>
-            </AppBarButton>
-            <AppBarButton Label="清空日志" Click="ClearLog_Click">
-                <AppBarButton.Icon>
-                    <SymbolIcon Symbol="Clear" />
                 </AppBarButton.Icon>
             </AppBarButton>
         </CommandBar>
@@ -74,14 +69,11 @@
                     Grid.Row="5"
                     Grid.Column="1"
                     Grid.ColumnSpan="2"
-                    ColumnDefinitions="Auto,16,Auto,24,180,*"
-                    RowDefinitions="Auto,Auto"
-                    RowSpacing="8">
+                    ColumnDefinitions="Auto,16,Auto,24,220,*"
+                    RowDefinitions="Auto">
                     <CheckBox x:Name="OverwriteCheckBox" VerticalAlignment="Center" Content="覆盖输出" IsChecked="True" />
-                    <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="日志级别" />
-                    <ComboBox x:Name="LoglevelComboBox" Grid.Column="4" Width="180" HorizontalAlignment="Left" />
-                    <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="拼接模式" />
-                    <ComboBox x:Name="ConcatModeComboBox" Grid.Row="1" Grid.Column="4" Width="180" HorizontalAlignment="Left" />
+                    <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="拼接模式" />
+                    <ComboBox x:Name="ConcatModeComboBox" Grid.Column="4" Width="220" HorizontalAlignment="Left" />
                 </Grid>
             </Grid>
         </Border>
@@ -152,11 +144,11 @@
                         <DataTemplate>
                             <Grid Padding="0,4" ColumnDefinitions="150,150,*,88" ColumnSpacing="10">
                                 <TextBox
-                                    PlaceholderText="00:03:12"
+                                    PlaceholderText="时:分:秒"
                                     Text="{Binding Start, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                 <TextBox
                                     Grid.Column="1"
-                                    PlaceholderText="00:03:20"
+                                    PlaceholderText="时:分:秒"
                                     Text="{Binding End, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                 <TextBox
                                     Grid.Column="2"
@@ -177,28 +169,6 @@
 
         <Border
             Grid.Row="3"
-            Padding="18"
-            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-            BorderThickness="1"
-            CornerRadius="8">
-            <Grid RowDefinitions="Auto,*" RowSpacing="10">
-                <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="执行日志" />
-                <TextBox
-                    x:Name="LogTextBox"
-                    Grid.Row="1"
-                    AcceptsReturn="True"
-                    FontFamily="Cascadia Mono"
-                    IsReadOnly="True"
-                    ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                    ScrollViewer.VerticalScrollBarVisibility="Auto"
-                    TextWrapping="NoWrap"
-                    />
-            </Grid>
-        </Border>
-
-        <Border
-            Grid.Row="4"
             Padding="16,12"
             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"

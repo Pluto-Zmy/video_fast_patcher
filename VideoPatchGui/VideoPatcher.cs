@@ -146,7 +146,7 @@ public sealed class VideoPatcher
             .Concat(new[] { "-f", "concat", "-safe", "0", "-i", concatList })
             .ToList();
 
-        if (string.Equals(config.Concat.Mode, "copy", StringComparison.OrdinalIgnoreCase))
+        if (ConcatModes.IsFast(config.Concat.Mode))
         {
             concatArgs.AddRange(new[] { "-c", "copy" });
         }

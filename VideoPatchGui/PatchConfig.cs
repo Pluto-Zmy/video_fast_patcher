@@ -37,10 +37,38 @@ public sealed class FfmpegConfig
 public sealed class ConcatConfig
 {
     [JsonPropertyName("mode")]
-    public string Mode { get; set; } = "copy";
+    public string Mode { get; set; } = ConcatModes.Fast;
 
     [JsonPropertyName("container")]
     public string Container { get; set; } = "mp4";
+}
+
+internal static class ConcatModes
+{
+    public const string Fast = "快速拼接";
+    public const string ReEncode = "重新编码（更慢）";
+
+    private const string LegacyCopy = "copy";
+    private const string LegacyEncode = "encode";
+
+    public static readonly string[] DisplayNames = [Fast, ReEncode];
+
+    public static string Normalize(string? mode)
+    {
+        if (string.Equals(mode, ReEncode, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(mode, LegacyEncode, StringComparison.OrdinalIgnoreCase))
+        {
+            return ReEncode;
+        }
+
+        return Fast;
+    }
+
+    public static bool IsFast(string? mode)
+    {
+        var normalized = Normalize(mode);
+        return string.Equals(normalized, Fast, StringComparison.Ordinal);
+    }
 }
 
 public sealed class SegmentConfig : INotifyPropertyChanged

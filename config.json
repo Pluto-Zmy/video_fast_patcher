@@ -10,7 +10,7 @@
   },
 
   "concat": {
-    "mode": "copy",
+    "mode": "快速拼接",
     "container": "mp4"
   },
 
