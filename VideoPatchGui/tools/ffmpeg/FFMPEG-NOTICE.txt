@@ -1,0 +1,9 @@
+Bundled FFmpeg
+==============
+
+This application bundles ffmpeg.exe, ffprobe.exe, and the runtime DLLs from:
+
+  ffmpeg version 7.0.1-full_build-www.gyan.dev
+
+The bundled build reports GPL-enabled configuration. Keep the included
+LICENSE and README.txt files with redistributed copies of this application.
