@@ -5,7 +5,30 @@
     xmlns:local="using:VideoPatchGui"
     Title="视频修补工具">
 
-    <Grid x:Name="RootGrid" Padding="24,18,24,20" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="16">
+    <Grid x:Name="RootGrid" RowDefinitions="48,*">
+        <Grid
+            x:Name="AppTitleBar"
+            Grid.Row="0"
+            Padding="16,0,138,0"
+            Background="#241823"
+            ColumnDefinitions="24,*"
+            ColumnSpacing="10">
+            <Image
+                Width="22"
+                Height="22"
+                VerticalAlignment="Center"
+                Source="Assets/AppIcon.png" />
+            <TextBlock
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                FontSize="14"
+                FontWeight="SemiBold"
+                Foreground="White"
+                Text="视频修补工具"
+                TextTrimming="CharacterEllipsis" />
+        </Grid>
+
+        <Grid Grid.Row="1" Padding="24,18,24,20" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="16">
         <CommandBar
             x:Name="Toolbar"
             Grid.Row="0"
@@ -195,5 +218,6 @@
                 </StackPanel>
             </Grid>
         </Border>
+        </Grid>
     </Grid>
 </Window>

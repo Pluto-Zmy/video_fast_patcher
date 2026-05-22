@@ -68,6 +68,10 @@ public sealed partial class MainWindow : Window
         var windowId = Win32Interop.GetWindowIdFromWindow(_windowHandle);
         var appWindow = AppWindow.GetFromWindowId(windowId);
         appWindow.Title = "视频修补工具";
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(AppTitleBar);
+        ConfigureTitleBarColors(appWindow.TitleBar);
+
         var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
         if (File.Exists(iconPath))
         {
@@ -75,6 +79,22 @@ public sealed partial class MainWindow : Window
         }
 
         appWindow.Resize(new SizeInt32(1080, 1220));
+    }
+
+    private static void ConfigureTitleBarColors(AppWindowTitleBar titleBar)
+    {
+        titleBar.BackgroundColor = Windows.UI.Color.FromArgb(255, 36, 24, 35);
+        titleBar.ForegroundColor = Colors.White;
+        titleBar.InactiveBackgroundColor = Windows.UI.Color.FromArgb(255, 36, 24, 35);
+        titleBar.InactiveForegroundColor = Windows.UI.Color.FromArgb(255, 176, 170, 176);
+        titleBar.ButtonBackgroundColor = Colors.Transparent;
+        titleBar.ButtonForegroundColor = Colors.White;
+        titleBar.ButtonHoverBackgroundColor = Windows.UI.Color.FromArgb(255, 70, 52, 66);
+        titleBar.ButtonHoverForegroundColor = Colors.White;
+        titleBar.ButtonPressedBackgroundColor = Windows.UI.Color.FromArgb(255, 84, 64, 78);
+        titleBar.ButtonPressedForegroundColor = Colors.White;
+        titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
+        titleBar.ButtonInactiveForegroundColor = Windows.UI.Color.FromArgb(255, 176, 170, 176);
     }
 
     private void InitializeControls()
