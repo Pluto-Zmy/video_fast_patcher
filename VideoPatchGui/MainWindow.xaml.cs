@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.UI;
 using Microsoft.UI.Text;
@@ -14,9 +15,15 @@ namespace VideoPatchGui;
 
 public sealed partial class MainWindow : Window
 {
+    private const int InitialWindowWidth = 1080;
+    private const int InitialWindowHeight = 1220;
+    private const int MinimumWindowWidth = 1080;
+    private const int MinimumWindowHeight = 1220;
     private const string TimeFormatHint = "时:分:秒，例如 00:03:12";
     private const string SettingsFileName = "settings.json";
     private const string LogDirectoryName = "logs";
+    private const int GwlWndProc = -4;
+    private const uint WmGetMinMaxInfo = 0x0024;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -25,9 +32,11 @@ public sealed partial class MainWindow : Window
 
     private readonly ObservableCollection<SegmentConfig> _segments = new();
     private readonly IntPtr _windowHandle;
+    private readonly WndProcDelegate _windowProc;
     private readonly object _logLock = new();
     private readonly string _logFilePath;
 
+    private IntPtr _previousWindowProc;
     private string? _currentConfigPath;
     private CancellationTokenSource? _runCts;
     private bool _startupNoticeChecked;
@@ -39,6 +48,7 @@ public sealed partial class MainWindow : Window
         Title = "视频修补工具";
         SystemBackdrop = new MicaBackdrop();
         _windowHandle = WindowNative.GetWindowHandle(this);
+        _windowProc = WindowProc;
         _logFilePath = CreateLogFilePath();
 
         ConfigureWindow();
@@ -71,6 +81,7 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
         ConfigureTitleBarColors(appWindow.TitleBar);
+        ConfigureMinimumWindowSize();
 
         var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
         if (File.Exists(iconPath))
@@ -78,7 +89,30 @@ public sealed partial class MainWindow : Window
             appWindow.SetIcon(iconPath);
         }
 
-        appWindow.Resize(new SizeInt32(1080, 1220));
+        appWindow.Resize(new SizeInt32(InitialWindowWidth, InitialWindowHeight));
+    }
+
+    private void ConfigureMinimumWindowSize()
+    {
+        var newWindowProc = Marshal.GetFunctionPointerForDelegate(_windowProc);
+        _previousWindowProc = SetWindowLongPtr(_windowHandle, GwlWndProc, newWindowProc);
+    }
+
+    private IntPtr WindowProc(IntPtr windowHandle, uint message, IntPtr wParam, IntPtr lParam)
+    {
+        var result = _previousWindowProc == IntPtr.Zero
+            ? DefWindowProc(windowHandle, message, wParam, lParam)
+            : CallWindowProc(_previousWindowProc, windowHandle, message, wParam, lParam);
+
+        if (message == WmGetMinMaxInfo)
+        {
+            var minMaxInfo = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+            minMaxInfo.MinTrackSize.X = MinimumWindowWidth;
+            minMaxInfo.MinTrackSize.Y = MinimumWindowHeight;
+            Marshal.StructureToPtr(minMaxInfo, lParam, false);
+        }
+
+        return result;
     }
 
     private static void ConfigureTitleBarColors(AppWindowTitleBar titleBar)
@@ -699,6 +733,46 @@ public sealed partial class MainWindow : Window
 
         await dialog.ShowAsync();
     }
+
+    private delegate IntPtr WndProcDelegate(IntPtr windowHandle, uint message, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public NativePoint Reserved;
+        public NativePoint MaxSize;
+        public NativePoint MaxPosition;
+        public NativePoint MinTrackSize;
+        public NativePoint MaxTrackSize;
+    }
+
+    [DllImport("user32.dll", EntryPoint = "CallWindowProcW")]
+    private static extern IntPtr CallWindowProc(
+        IntPtr previousWindowProc,
+        IntPtr windowHandle,
+        uint message,
+        IntPtr wParam,
+        IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "DefWindowProcW")]
+    private static extern IntPtr DefWindowProc(
+        IntPtr windowHandle,
+        uint message,
+        IntPtr wParam,
+        IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    private static extern IntPtr SetWindowLongPtr(
+        IntPtr windowHandle,
+        int index,
+        IntPtr newLong);
 }
 
 internal sealed class AppSettings
