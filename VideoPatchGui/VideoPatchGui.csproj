@@ -9,6 +9,7 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <WindowsSdkPackageVersion>10.0.19041.38</WindowsSdkPackageVersion>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>VideoPatch</AssemblyName>
@@ -23,6 +24,12 @@
     </Content>
 
     <Content Include="tools\ffmpeg\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+
+    <Content Include="Assets\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       <ExcludeFromSingleFile>true</ExcludeFromSingleFile>

@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
 using Microsoft.UI;
+using Microsoft.UI.Text;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -14,6 +15,7 @@ namespace VideoPatchGui;
 public sealed partial class MainWindow : Window
 {
     private const string TimeFormatHint = "时:分:秒，例如 00:03:12";
+    private const string SettingsFileName = "settings.json";
 
     private static readonly string[] Loglevels = ["", "quiet", "panic", "fatal", "error", "warning", "info", "verbose", "debug"];
     private static readonly string[] ConcatModes = ["copy", "encode"];
@@ -27,6 +29,7 @@ public sealed partial class MainWindow : Window
 
     private string? _currentConfigPath;
     private CancellationTokenSource? _runCts;
+    private bool _startupNoticeChecked;
 
     public MainWindow()
     {
@@ -40,6 +43,21 @@ public sealed partial class MainWindow : Window
         InitializeControls();
         RefreshFfmpegStatus();
         LoadDefaultConfigIfPresent();
+        RootGrid.Loaded += RootGrid_Loaded;
+    }
+
+    private async void RootGrid_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (_startupNoticeChecked)
+        {
+            return;
+        }
+
+        _startupNoticeChecked = true;
+        if (!LoadAppSettings().HideStartupNotice)
+        {
+            await ShowStartupNoticeAsync();
+        }
     }
 
     private void ConfigureWindow()
@@ -47,6 +65,12 @@ public sealed partial class MainWindow : Window
         var windowId = Win32Interop.GetWindowIdFromWindow(_windowHandle);
         var appWindow = AppWindow.GetFromWindowId(windowId);
         appWindow.Title = "视频修补工具";
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+        if (File.Exists(iconPath))
+        {
+            appWindow.SetIcon(iconPath);
+        }
+
         appWindow.Resize(new SizeInt32(1080, 1720));
     }
 
@@ -59,6 +83,108 @@ public sealed partial class MainWindow : Window
         ConcatModeComboBox.SelectedItem = "copy";
 
         SegmentsList.ItemsSource = _segments;
+    }
+
+    private async Task ShowStartupNoticeAsync()
+    {
+        var dontShowAgainCheckBox = new CheckBox
+        {
+            Content = "下次不再提示",
+            Margin = new Thickness(0, 8, 0, 0),
+        };
+
+        var contentPanel = new StackPanel
+        {
+            Spacing = 12,
+            MaxWidth = 620,
+        };
+        contentPanel.Children.Add(MakeNoticeSection("功能简介", "本工具用于将原视频中的一个或多个指定时间段替换为补丁视频，并输出修补后的新视频。支持直接复制编码参数的快速修补（copy 模式）和重新编码的兼容性更强的修补（encode 模式，更慢）。"));
+        contentPanel.Children.Add(MakeNoticeSection("适用场景", "适合处理局部画面或声音错误、替换短片段、修正片头片尾、重新拼接少量补丁片段等场景。"));
+        contentPanel.Children.Add(MakeNoticeSection("磁盘空间要求", "处理过程会在工作目录中生成临时切片和拼接文件。建议预留至少为原视频、补丁视频和输出文件合计大小 2 到 3 倍的可用空间。"));
+        contentPanel.Children.Add(MakeNoticeSection("视频文件要求", "补丁片段时间必须有效且不能重叠；copy 模式要求原视频与补丁视频编码参数兼容，不兼容时请改用 encode 模式。"));
+        contentPanel.Children.Add(MakeNoticeSection("重要提醒！", "修补完成后，请务必自行检查输出视频的画面、声音、时长、同步情况和关键片段内容，确认无误后再用于正式场景！"));
+        contentPanel.Children.Add(dontShowAgainCheckBox);
+
+        var dialog = new ContentDialog
+        {
+            Title = "使用前提示",
+            Content = new ScrollViewer
+            {
+                Content = contentPanel,
+                MaxHeight = 620,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            },
+            PrimaryButtonText = "我知道了",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+
+        await dialog.ShowAsync();
+
+        if (dontShowAgainCheckBox.IsChecked == true)
+        {
+            SaveAppSettings(new AppSettings { HideStartupNotice = true });
+        }
+    }
+
+    private static StackPanel MakeNoticeSection(string title, string body)
+    {
+        var panel = new StackPanel
+        {
+            Spacing = 4,
+        };
+        panel.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontSize = 15,
+            FontWeight = FontWeights.SemiBold,
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = body,
+            TextWrapping = TextWrapping.WrapWholeWords,
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+        });
+        return panel;
+    }
+
+    private static AppSettings LoadAppSettings()
+    {
+        try
+        {
+            var path = GetSettingsPath();
+            if (!File.Exists(path))
+            {
+                return new AppSettings();
+            }
+
+            var json = File.ReadAllText(path);
+            return JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+        }
+        catch
+        {
+            return new AppSettings();
+        }
+    }
+
+    private static void SaveAppSettings(AppSettings settings)
+    {
+        try
+        {
+            var path = GetSettingsPath();
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, JsonSerializer.Serialize(settings, JsonOptions));
+        }
+        catch
+        {
+            // A failed preference write should not block the app from opening.
+        }
+    }
+
+    private static string GetSettingsPath()
+    {
+        var baseDirectory = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(baseDirectory, "VideoPatch", SettingsFileName);
     }
 
     private async void OpenConfig_Click(object sender, RoutedEventArgs e)
@@ -495,4 +621,9 @@ public sealed partial class MainWindow : Window
 
         await dialog.ShowAsync();
     }
+}
+
+internal sealed class AppSettings
+{
+    public bool HideStartupNotice { get; set; }
 }

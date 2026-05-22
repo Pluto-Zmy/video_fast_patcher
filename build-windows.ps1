@@ -27,5 +27,29 @@ if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed with exit code $LASTEXITCODE"
 }
 
+$keptLanguages = @("en", "zh")
+$removedCultureDirectories = @()
+
+Get-ChildItem -LiteralPath $publishDir -Directory | ForEach-Object {
+    $directory = $_
+    $language = $null
+
+    try {
+        $culture = [System.Globalization.CultureInfo]::GetCultureInfo($directory.Name)
+        $language = $culture.TwoLetterISOLanguageName.ToLowerInvariant()
+    }
+    catch {
+        if ($directory.Name -match "^(?<language>[a-z]{2,3})(?:-[A-Za-z0-9]+)+$") {
+            $language = $Matches.language.ToLowerInvariant()
+        }
+    }
+
+    if ($language -and ($keptLanguages -notcontains $language)) {
+        Remove-Item -LiteralPath $directory.FullName -Recurse -Force
+        $removedCultureDirectories += $directory.Name
+    }
+}
+
 Write-Host "Published to: $publishDir"
+Write-Host "Trimmed language resource directories: $($removedCultureDirectories.Count)"
 Write-Host "Run: $(Join-Path $publishDir 'VideoPatch.exe')"

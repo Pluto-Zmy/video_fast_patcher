@@ -5,7 +5,7 @@
     xmlns:local="using:VideoPatchGui"
     Title="视频修补工具">
 
-    <Grid Padding="24,18,24,20" RowDefinitions="Auto,Auto,*,220,Auto" RowSpacing="16">
+    <Grid x:Name="RootGrid" Padding="24,18,24,20" RowDefinitions="Auto,Auto,*,220,Auto" RowSpacing="16">
         <CommandBar
             x:Name="Toolbar"
             Grid.Row="0"
