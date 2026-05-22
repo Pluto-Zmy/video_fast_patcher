@@ -1,6 +1,6 @@
 # 视频修补工具 Windows GUI
 
-这个版本把原来的 `video_patch.py` 迁移成 .NET 8 WinForms 桌面程序，不再依赖 Python 环境。程序优先使用随发布目录携带的 `tools\ffmpeg\ffmpeg.exe`。
+这是一个 .NET 8 + WinUI 3 桌面程序。程序优先使用随发布目录携带的 `tools\ffmpeg\ffmpeg.exe`。
 
 ## 构建
 
@@ -10,7 +10,7 @@
 
 发布产物在 `publish\win-x64`，入口是 `VideoPatch.exe`。发布命令使用 self-contained 模式，目标机器不需要单独安装 .NET 运行时。
 
-发布目录中的 `tools\ffmpeg` 是程序运行所需的内置 ffmpeg，请和 `VideoPatch.exe` 一起分发。
+WinUI 3 版本使用文件夹式发布。分发时请完整复制 `publish\win-x64` 目录，不要只复制 `VideoPatch.exe`。发布目录中的 `tools\ffmpeg` 是程序运行所需的内置 ffmpeg，也需要一起分发。
 
 ## 使用
 
@@ -19,7 +19,7 @@
 3. 在表格中填写每个需要替换的时间段和补丁视频。开始时间和结束时间格式为 `时:分:秒`，例如 `00:03:12`。
 4. 点击“开始修补”。
 
-也可以直接打开或保存与旧脚本兼容的 `config.json`。
+也可以直接打开或保存 `config.json` 配置文件。
 
 修补成功后，程序会自动删除临时工作目录；如果输入、输出或补丁文件位于该目录内，会跳过删除并在日志中提示。
 

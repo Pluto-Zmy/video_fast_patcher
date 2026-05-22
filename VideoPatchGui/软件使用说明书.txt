@@ -5,7 +5,7 @@
 
 本工具用于将原视频中的指定时间段替换为补丁视频，并输出修补后的新视频。
 
-软件为 Windows GUI 可执行程序，不需要安装 Python。发布目录中已内置 ffmpeg 和 ffprobe。
+软件为 Windows GUI 可执行程序。发布目录中已内置 ffmpeg 和 ffprobe。
 
 
 二、启动软件

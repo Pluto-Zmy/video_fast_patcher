@@ -1,0 +1,229 @@
+<Window
+    x:Class="VideoPatchGui.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:VideoPatchGui"
+    Title="视频修补工具">
+
+    <Grid Padding="24,18,24,20" RowDefinitions="Auto,Auto,*,220,Auto" RowSpacing="16">
+        <CommandBar
+            x:Name="Toolbar"
+            Grid.Row="0"
+            Background="Transparent"
+            DefaultLabelPosition="Right"
+            IsOpen="False">
+            <AppBarButton Label="打开配置" Click="OpenConfig_Click">
+                <AppBarButton.Icon>
+                    <SymbolIcon Symbol="OpenFile" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarButton Label="保存配置" Click="SaveConfig_Click">
+                <AppBarButton.Icon>
+                    <SymbolIcon Symbol="Save" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarButton Label="另存为" Click="SaveConfigAs_Click">
+                <AppBarButton.Icon>
+                    <SymbolIcon Symbol="SaveLocal" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarButton Label="清空日志" Click="ClearLog_Click">
+                <AppBarButton.Icon>
+                    <SymbolIcon Symbol="Clear" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+        </CommandBar>
+
+        <Border
+            Grid.Row="1"
+            Padding="18"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="8">
+            <Grid
+                x:Name="SettingsGrid"
+                ColumnDefinitions="112,*,96"
+                ColumnSpacing="12"
+                RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                RowSpacing="10">
+                <TextBlock
+                    Grid.ColumnSpan="3"
+                    Margin="0,0,0,4"
+                    Style="{ThemeResource SubtitleTextBlockStyle}"
+                    Text="文件与选项" />
+
+                <TextBlock Grid.Row="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="输入视频" />
+                <TextBox x:Name="InputTextBox" Grid.Row="1" Grid.Column="1" PlaceholderText="选择需要修补的视频" />
+                <Button Grid.Row="1" Grid.Column="2" HorizontalAlignment="Stretch" Click="BrowseInput_Click" Content="浏览" />
+
+                <TextBlock Grid.Row="2" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="输出文件" />
+                <TextBox x:Name="OutputTextBox" Grid.Row="2" Grid.Column="1" PlaceholderText="选择输出 MP4 文件" />
+                <Button Grid.Row="2" Grid.Column="2" HorizontalAlignment="Stretch" Click="BrowseOutput_Click" Content="选择" />
+
+                <TextBlock Grid.Row="3" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="工作目录" />
+                <TextBox x:Name="WorkdirTextBox" Grid.Row="3" Grid.Column="1" PlaceholderText="_patch_tmp" />
+                <Button Grid.Row="3" Grid.Column="2" HorizontalAlignment="Stretch" Click="BrowseWorkdir_Click" Content="选择" />
+
+                <TextBlock Grid.Row="4" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="ffmpeg" />
+                <TextBox x:Name="FfmpegTextBox" Grid.Row="4" Grid.Column="1" IsReadOnly="True" />
+                <Button Grid.Row="4" Grid.Column="2" HorizontalAlignment="Stretch" Click="RefreshFfmpeg_Click" Content="刷新" />
+
+                <TextBlock Grid.Row="5" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="选项" />
+                <Grid
+                    Grid.Row="5"
+                    Grid.Column="1"
+                    Grid.ColumnSpan="2"
+                    ColumnDefinitions="Auto,16,Auto,24,180,*"
+                    RowDefinitions="Auto,Auto"
+                    RowSpacing="8">
+                    <CheckBox x:Name="OverwriteCheckBox" VerticalAlignment="Center" Content="覆盖输出" IsChecked="True" />
+                    <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="日志级别" />
+                    <ComboBox x:Name="LoglevelComboBox" Grid.Column="4" Width="180" HorizontalAlignment="Left" />
+                    <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="拼接模式" />
+                    <ComboBox x:Name="ConcatModeComboBox" Grid.Row="1" Grid.Column="4" Width="180" HorizontalAlignment="Left" />
+                </Grid>
+            </Grid>
+        </Border>
+
+        <Border
+            Grid.Row="2"
+            Padding="18"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="8">
+            <Grid
+                x:Name="SegmentsGrid"
+                RowDefinitions="Auto,Auto,Auto,*"
+                RowSpacing="10">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="补丁片段" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                        <Button Click="AddSegment_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <SymbolIcon Symbol="Add" />
+                                <TextBlock Text="添加" />
+                            </StackPanel>
+                        </Button>
+                        <Button Click="RemoveSelectedSegment_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <SymbolIcon Symbol="Delete" />
+                                <TextBlock Text="删除" />
+                            </StackPanel>
+                        </Button>
+                        <Button Click="BrowsePatchForSelectedRow_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <SymbolIcon Symbol="OpenFile" />
+                                <TextBlock Text="选择补丁文件" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock
+                    Grid.Row="1"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="开始时间和结束时间格式：时:分:秒，例如 00:03:12" />
+
+                <Border
+                    Grid.Row="2"
+                    Padding="12,8"
+                    Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                    CornerRadius="6">
+                    <Grid ColumnDefinitions="150,150,*,88" ColumnSpacing="10">
+                        <TextBlock FontWeight="SemiBold" Text="开始时间" />
+                        <TextBlock Grid.Column="1" FontWeight="SemiBold" Text="结束时间" />
+                        <TextBlock Grid.Column="2" FontWeight="SemiBold" Text="补丁视频" />
+                        <TextBlock Grid.Column="3" FontWeight="SemiBold" Text="操作" />
+                    </Grid>
+                </Border>
+
+                <ListView
+                    x:Name="SegmentsList"
+                    Grid.Row="3"
+                    SelectionMode="Single">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Padding="0,4" ColumnDefinitions="150,150,*,88" ColumnSpacing="10">
+                                <TextBox
+                                    PlaceholderText="00:03:12"
+                                    Text="{Binding Start, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBox
+                                    Grid.Column="1"
+                                    PlaceholderText="00:03:20"
+                                    Text="{Binding End, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBox
+                                    Grid.Column="2"
+                                    PlaceholderText="补丁视频路径"
+                                    Text="{Binding Patch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <Button
+                                    Grid.Column="3"
+                                    HorizontalAlignment="Stretch"
+                                    Click="BrowsePatchForSegment_Click"
+                                    Content="选择"
+                                    Tag="{Binding}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+        </Border>
+
+        <Border
+            Grid.Row="3"
+            Padding="18"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="8">
+            <Grid RowDefinitions="Auto,*" RowSpacing="10">
+                <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="执行日志" />
+                <TextBox
+                    x:Name="LogTextBox"
+                    Grid.Row="1"
+                    AcceptsReturn="True"
+                    FontFamily="Cascadia Mono"
+                    IsReadOnly="True"
+                    ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                    ScrollViewer.VerticalScrollBarVisibility="Auto"
+                    TextWrapping="NoWrap"
+                    />
+            </Grid>
+        </Border>
+
+        <Border
+            Grid.Row="4"
+            Padding="16,12"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="8">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                <ProgressBar
+                    x:Name="PatchProgressBar"
+                    VerticalAlignment="Center"
+                    Maximum="1000"
+                    Minimum="0"
+                    Value="0" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <Button
+                        x:Name="RunButton"
+                        Click="RunPatch_Click"
+                        Style="{ThemeResource AccentButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <SymbolIcon Symbol="Play" />
+                            <TextBlock Text="开始修补" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="CancelButton" Click="CancelPatch_Click" Content="取消" IsEnabled="False" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
