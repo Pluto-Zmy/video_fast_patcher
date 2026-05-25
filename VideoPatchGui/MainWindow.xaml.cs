@@ -39,6 +39,10 @@ public sealed partial class MainWindow : Window
     private IntPtr _previousWindowProc;
     private string? _currentConfigPath;
     private CancellationTokenSource? _runCts;
+    private TimeSpan? _currentRemainingTime;
+    private string _currentRunStep = "就绪";
+    private int _currentProgressValue;
+    private bool _isRunning;
     private bool _startupNoticeChecked;
 
     public MainWindow()
@@ -152,10 +156,10 @@ public sealed partial class MainWindow : Window
             Spacing = 12,
             MaxWidth = 620,
         };
-        contentPanel.Children.Add(MakeNoticeSection("功能简介", "本工具用于将原视频中的一个或多个指定时间段替换为补丁视频，并输出修补后的新视频。支持直接复制编码参数的快速拼接，以及兼容性更强但速度更慢的重新编码。"));
+        contentPanel.Children.Add(MakeNoticeSection("功能简介", "本工具用于将原视频中的一个或多个指定时间段替换为补丁视频，并输出修补后的新视频。支持直接复制编码参数的快速拼接，以及兼容性更强、会自动尝试 GPU 编码加速的重新编码。"));
         contentPanel.Children.Add(MakeNoticeSection("适用场景", "适合处理局部画面或声音错误、替换短片段、修正片头片尾、重新拼接少量补丁片段等场景。"));
         contentPanel.Children.Add(MakeNoticeSection("磁盘空间要求", "处理过程会在工作目录中生成临时切片和拼接文件。建议预留至少为原视频、补丁视频和输出文件合计大小 2 到 3 倍的可用空间。"));
-        contentPanel.Children.Add(MakeNoticeSection("视频文件要求", "补丁片段时间必须有效且不能重叠；快速拼接要求原视频与补丁视频编码参数兼容，不兼容时请改用重新编码（更慢）。"));
+        contentPanel.Children.Add(MakeNoticeSection("视频文件要求", "补丁片段时间必须有效且不能重叠；快速拼接要求原视频与补丁视频编码参数兼容，不兼容时请改用重新编码（更慢）。重新编码会自动检测 GPU 编码器，不可用时回退 CPU。"));
         contentPanel.Children.Add(MakeNoticeSection("重要提醒！", "修补完成后，请务必自行检查输出视频的画面、声音、时长、同步情况和关键片段内容，确认无误后再用于正式场景！"));
         contentPanel.Children.Add(dontShowAgainCheckBox);
 
@@ -573,20 +577,24 @@ public sealed partial class MainWindow : Window
             var baseDirectory = GetConfigBaseDirectory();
 
             SetRunning(true);
+            UpdateRunStatus("准备执行");
             AppendLog("开始执行。");
 
             _runCts = new CancellationTokenSource();
-            var patcher = new VideoPatcher(ffmpegPath, AppendLog, UpdateProgress);
+            var patcher = new VideoPatcher(ffmpegPath, AppendLog, UpdateProgress, UpdateRunStatus, UpdateRemainingTime);
             await patcher.RunAsync(config, baseDirectory, _runCts.Token);
+            UpdateRunStatus("处理完成");
             await ShowInfoAsync($"视频修补完成。\n\n日志文件：{_logFilePath}", "完成");
         }
         catch (OperationCanceledException)
         {
             AppendLog("已取消。");
+            UpdateRunStatus("已取消");
         }
         catch (Exception ex)
         {
             AppendLog("失败: " + ex.Message);
+            UpdateRunStatus("处理失败");
             ShowError($"{ex.Message}\n\n日志文件：{_logFilePath}");
         }
         finally
@@ -620,8 +628,18 @@ public sealed partial class MainWindow : Window
 
         if (running)
         {
+            _isRunning = true;
+            _currentRemainingTime = null;
+            _currentRunStep = "准备执行";
+            _currentProgressValue = 0;
+            UpdateRunStatusText();
             UpdateProgress(0);
+            return;
         }
+
+        _isRunning = false;
+        _currentRemainingTime = null;
+        UpdateRunStatusText();
     }
 
     private void UpdateProgress(int value)
@@ -632,7 +650,68 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        PatchProgressBar.Value = Math.Clamp(value, (int)PatchProgressBar.Minimum, (int)PatchProgressBar.Maximum);
+        _currentProgressValue = Math.Clamp(value, (int)PatchProgressBar.Minimum, (int)PatchProgressBar.Maximum);
+        PatchProgressBar.Value = _currentProgressValue;
+        if (_currentProgressValue >= PatchProgressBar.Maximum)
+        {
+            _currentRemainingTime = TimeSpan.Zero;
+        }
+
+        UpdateRunStatusText();
+    }
+
+    private void UpdateRunStatus(string step)
+    {
+        if (!DispatcherQueue.HasThreadAccess)
+        {
+            _ = DispatcherQueue.TryEnqueue(() => UpdateRunStatus(step));
+            return;
+        }
+
+        _currentRunStep = string.IsNullOrWhiteSpace(step) ? "正在处理" : step;
+        UpdateRunStatusText();
+    }
+
+    private void UpdateRemainingTime(TimeSpan? remaining)
+    {
+        if (!DispatcherQueue.HasThreadAccess)
+        {
+            _ = DispatcherQueue.TryEnqueue(() => UpdateRemainingTime(remaining));
+            return;
+        }
+
+        _currentRemainingTime = remaining;
+        UpdateRunStatusText();
+    }
+
+    private void UpdateRunStatusText()
+    {
+        RunStatusTextBlock.Text = !_isRunning
+            ? _currentRunStep
+            : $"{_currentRunStep} · 剩余时间：{FormatRemainingTimeText()}";
+    }
+
+    private string FormatRemainingTimeText()
+    {
+        if (_currentProgressValue >= PatchProgressBar.Maximum)
+        {
+            return "00:00";
+        }
+
+        if (_currentRemainingTime == null)
+        {
+            return "估算中";
+        }
+
+        var remaining = TimeSpan.FromSeconds(Math.Max(0, _currentRemainingTime.Value.TotalSeconds));
+        return $"约 {FormatDuration(remaining)}";
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        return duration.TotalHours >= 1
+            ? $"{(int)duration.TotalHours:00}:{duration.Minutes:00}:{duration.Seconds:00}"
+            : $"{duration.Minutes:00}:{duration.Seconds:00}";
     }
 
     private async Task BrowsePatchForSegmentAsync(SegmentConfig segment)

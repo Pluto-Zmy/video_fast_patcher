@@ -197,14 +197,30 @@
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="1"
             CornerRadius="8">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18" RowDefinitions="Auto,Auto" RowSpacing="8">
+                <TextBlock
+                    x:Name="RunStatusTextBlock"
+                    Grid.Row="0"
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="就绪"
+                    TextTrimming="CharacterEllipsis" />
                 <ProgressBar
                     x:Name="PatchProgressBar"
+                    Grid.Row="1"
+                    Grid.Column="0"
                     VerticalAlignment="Center"
                     Maximum="1000"
                     Minimum="0"
                     Value="0" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                <StackPanel
+                    Grid.Row="0"
+                    Grid.RowSpan="2"
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="8">
                     <Button
                         x:Name="RunButton"
                         Click="RunPatch_Click"
