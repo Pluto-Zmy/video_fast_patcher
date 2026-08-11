@@ -2,6 +2,7 @@
 bin/
 obj/
 publish/
+.worktrees/
 
 # User and IDE files
 .vs/
