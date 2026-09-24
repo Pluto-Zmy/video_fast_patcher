@@ -36,11 +36,28 @@ public sealed class FfmpegConfig
 
 public sealed class ConcatConfig
 {
+    [JsonPropertyName("video_codec")]
+    public string VideoCodec { get; set; } = VideoCodecs.H264;
+
     [JsonPropertyName("mode")]
     public string Mode { get; set; } = ConcatModes.Fast;
 
     [JsonPropertyName("container")]
     public string Container { get; set; } = "mp4";
+}
+
+internal static class VideoCodecs
+{
+    public const string H264 = "h264";
+    public const string H265 = "hevc";
+    public static readonly string[] DisplayNames = ["H.264", "H.265 (HEVC)"];
+
+    public static string Normalize(string? codec) => codec?.Trim().ToLowerInvariant() switch
+    {
+        null or "" or "h264" or "h.264" => H264,
+        "hevc" or "h265" or "h.265" or "h.265 (hevc)" => H265,
+        _ => throw new InvalidOperationException($"不支持的视频编码: {codec}"),
+    };
 }
 
 internal static class ConcatModes
@@ -74,7 +91,6 @@ internal static class ConcatModes
 public sealed class SegmentConfig : INotifyPropertyChanged
 {
     private string _start = "";
-    private string _end = "";
     private string _patch = "";
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -84,13 +100,6 @@ public sealed class SegmentConfig : INotifyPropertyChanged
     {
         get => _start;
         set => SetField(ref _start, value);
-    }
-
-    [JsonPropertyName("end")]
-    public string End
-    {
-        get => _end;
-        set => SetField(ref _end, value);
     }
 
     [JsonPropertyName("patch")]

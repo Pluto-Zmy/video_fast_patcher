@@ -137,10 +137,18 @@ public sealed partial class MainWindow : Window
 
     private void InitializeControls()
     {
+        VideoCodecComboBox.ItemsSource = VideoCodecs.DisplayNames;
+        VideoCodecComboBox.SelectedIndex = 0;
         ConcatModeComboBox.ItemsSource = ConcatModes.DisplayNames;
         ConcatModeComboBox.SelectedItem = ConcatModes.Fast;
 
         SegmentsList.ItemsSource = _segments;
+    }
+
+    private void ConcatMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (VideoCodecComboBox != null)
+            VideoCodecComboBox.IsEnabled = !ConcatModes.IsFast(ConcatModeComboBox.SelectedItem as string);
     }
 
     private async Task ShowStartupNoticeAsync()
@@ -159,7 +167,7 @@ public sealed partial class MainWindow : Window
         contentPanel.Children.Add(MakeNoticeSection("功能简介", "本工具用于将原视频中的一个或多个指定时间段替换为补丁视频，并输出修补后的新视频。支持直接复制编码参数的快速拼接，以及兼容性更强、会自动尝试 GPU 编码加速的重新编码。"));
         contentPanel.Children.Add(MakeNoticeSection("适用场景", "适合处理局部画面或声音错误、替换短片段、修正片头片尾、重新拼接少量补丁片段等场景。"));
         contentPanel.Children.Add(MakeNoticeSection("磁盘空间要求", "处理过程会在工作目录中生成临时切片和拼接文件。建议预留至少为原视频、补丁视频和输出文件合计大小 2 到 3 倍的可用空间。"));
-        contentPanel.Children.Add(MakeNoticeSection("视频文件要求", "补丁片段时间必须有效且不能重叠；快速拼接要求原视频与补丁视频编码参数兼容，不兼容时请改用重新编码（更慢）。重新编码会自动检测 GPU 编码器，不可用时回退 CPU。"));
+        contentPanel.Children.Add(MakeNoticeSection("视频文件要求", "补丁片段时间必须有效且不能重叠；快速拼接要求原视频与补丁视频编码参数兼容，重新编码可选择 H.264 或 H.265，会自动检测相应 GPU 编码器，不可用时回退 CPU。原视频和补丁应使用相同编码，不支持 H.264 与 H.265 混合片段直接拼接。"));
         contentPanel.Children.Add(MakeNoticeSection("重要提醒！", "修补完成后，请务必自行检查输出视频的画面、声音、时长、同步情况和关键片段内容，确认无误后再用于正式场景！"));
         contentPanel.Children.Add(dontShowAgainCheckBox);
 
@@ -464,6 +472,7 @@ public sealed partial class MainWindow : Window
         OverwriteCheckBox.IsChecked = config.Ffmpeg.Overwrite;
 
         ConcatModeComboBox.SelectedItem = ConcatModes.Normalize(config.Concat.Mode);
+        VideoCodecComboBox.SelectedIndex = VideoCodecs.Normalize(config.Concat.VideoCodec) == VideoCodecs.H265 ? 1 : 0;
 
         _segments.Clear();
         foreach (var segment in config.Segments)
@@ -518,16 +527,15 @@ public sealed partial class MainWindow : Window
             {
                 Mode = ConcatModes.Normalize(ConcatModeComboBox.SelectedItem as string),
                 Container = "mp4",
+                VideoCodec = VideoCodecComboBox.SelectedIndex == 1 ? VideoCodecs.H265 : VideoCodecs.H264,
             },
             Segments = _segments
                 .Where(segment =>
                     !string.IsNullOrWhiteSpace(segment.Start) ||
-                    !string.IsNullOrWhiteSpace(segment.End) ||
                     !string.IsNullOrWhiteSpace(segment.Patch))
                 .Select(segment => new SegmentConfig
                 {
                     Start = segment.Start.Trim(),
-                    End = segment.End.Trim(),
                     Patch = segment.Patch.Trim(),
                 })
                 .ToList(),
@@ -549,14 +557,9 @@ public sealed partial class MainWindow : Window
                 throw new InvalidOperationException($"第 {index + 1} 行开始时间格式无效，必须是 {TimeFormatHint}。");
             }
 
-            if (!VideoPatcher.TryParseTimestamp(segment.End, out var end))
+            if (string.IsNullOrWhiteSpace(segment.Patch))
             {
-                throw new InvalidOperationException($"第 {index + 1} 行结束时间格式无效，必须是 {TimeFormatHint}。");
-            }
-
-            if (start >= end)
-            {
-                throw new InvalidOperationException($"第 {index + 1} 行开始时间必须早于结束时间。");
+                throw new InvalidOperationException($"第 {index + 1} 行请选择补丁视频。");
             }
         }
     }
@@ -564,7 +567,6 @@ public sealed partial class MainWindow : Window
     private static bool IsEmptySegment(SegmentConfig segment)
     {
         return string.IsNullOrWhiteSpace(segment.Start) &&
-            string.IsNullOrWhiteSpace(segment.End) &&
             string.IsNullOrWhiteSpace(segment.Patch);
     }
 

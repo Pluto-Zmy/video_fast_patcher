@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 
 namespace VideoPatchGui;
 
@@ -12,7 +13,6 @@ public sealed class VideoPatcher
     private readonly Action<int>? _progress;
     private readonly Action<string>? _status;
     private readonly Action<TimeSpan?>? _remainingTime;
-    private VideoEncoderProfile? _selectedReEncodeVideoEncoder;
 
     private static readonly VideoEncoderProfile CpuVideoEncoder = new(
         "libx264",
@@ -26,6 +26,19 @@ public sealed class VideoPatcher
         new("h264_qsv", "Intel Quick Sync", ["-c:v", "h264_qsv", "-preset", "veryfast", "-global_quality", "23"], HardwareAccelerated: true),
         new("h264_amf", "AMD AMF", ["-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", "23", "-qp_p", "23", "-qp_b", "23"], HardwareAccelerated: true),
         new("h264_mf", "Windows Media Foundation", ["-c:v", "h264_mf", "-hw_encoding", "1", "-rate_control", "quality", "-quality", "75"], HardwareAccelerated: true),
+    ];
+
+    private static readonly VideoEncoderProfile CpuHevcEncoder = new(
+        "libx265", "CPU libx265",
+        ["-c:v", "libx265", "-preset", "medium", "-crf", "23"],
+        HardwareAccelerated: false);
+
+    private static readonly IReadOnlyList<VideoEncoderProfile> HardwareHevcEncoders =
+    [
+        new("hevc_nvenc", "NVIDIA NVENC H.265", ["-c:v", "hevc_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "23", "-b:v", "0"], HardwareAccelerated: true),
+        new("hevc_qsv", "Intel Quick Sync H.265", ["-c:v", "hevc_qsv", "-preset", "veryfast", "-global_quality", "23"], HardwareAccelerated: true),
+        new("hevc_amf", "AMD AMF H.265", ["-c:v", "hevc_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", "23", "-qp_p", "23"], HardwareAccelerated: true),
+        new("hevc_mf", "Windows Media Foundation H.265", ["-c:v", "hevc_mf", "-hw_encoding", "1", "-rate_control", "quality", "-quality", "75"], HardwareAccelerated: true),
     ];
 
     public VideoPatcher(
@@ -79,6 +92,7 @@ public sealed class VideoPatcher
     public async Task RunAsync(PatchConfig config, string baseDirectory, CancellationToken cancellationToken)
     {
         ValidateConfig(config);
+        var videoCodec = VideoCodecs.Normalize(config.Concat.VideoCodec);
 
         var inputVideo = ResolvePath(baseDirectory, config.Input);
         var outputVideo = ResolvePath(baseDirectory, config.Output);
@@ -89,30 +103,46 @@ public sealed class VideoPatcher
             throw new FileNotFoundException("输入视频不存在。", inputVideo);
         }
 
-        Directory.CreateDirectory(workdir);
-
-        var segments = config.Segments
-            .Select(segment => new SegmentWithTime(
-                segment,
-                ParseTimestamp(segment.Start, "开始时间"),
-                ParseTimestamp(segment.End, "结束时间"),
-                ResolvePath(baseDirectory, segment.Patch)))
-            .OrderBy(segment => segment.StartTime)
-            .ToList();
-
-        ValidateTimeline(segments);
-
-        foreach (var segment in segments)
+        var patchDurations = new Dictionary<string, TimeSpan>(StringComparer.OrdinalIgnoreCase);
+        var segments = new List<SegmentWithTime>();
+        foreach (var segment in config.Segments)
         {
-            if (!File.Exists(segment.PatchPath))
+            var startTime = ParseTimestamp(segment.Start, "开始时间");
+            var patchPath = ResolvePath(baseDirectory, segment.Patch);
+            if (!File.Exists(patchPath))
             {
-                throw new FileNotFoundException("补丁视频不存在。", segment.PatchPath);
+                throw new FileNotFoundException("补丁视频不存在。", patchPath);
             }
+
+            if (!patchDurations.TryGetValue(patchPath, out var patchDuration))
+            {
+                patchDuration = await ProbeDurationAsync(patchPath, cancellationToken);
+                if (patchDuration <= TimeSpan.Zero)
+                {
+                    throw new InvalidOperationException($"补丁视频时长必须大于零: {patchPath}");
+                }
+                patchDurations.Add(patchPath, patchDuration);
+            }
+
+            var endTime = startTime + patchDuration;
+            segments.Add(new SegmentWithTime(segment, startTime, endTime, patchPath));
+            _log($"补丁区间: {FormatTimestamp(startTime)} - {FormatTimestamp(endTime)} ({patchPath})");
         }
 
+        segments.Sort((left, right) => left.StartTime.CompareTo(right.StartTime));
+        ValidateTimeline(segments);
+
         ReportProgress(0);
-        ReportStatus("正在读取视频时长");
-        var progressPlan = await BuildProgressPlanAsync(inputVideo, segments, cancellationToken);
+        ReportStatus("正在读取原视频时长");
+        var inputDuration = await ProbeDurationAsync(inputVideo, cancellationToken);
+        if (segments[^1].EndTime > inputDuration)
+        {
+            throw new InvalidOperationException(
+                $"补丁结束时间 {FormatTimestamp(segments[^1].EndTime)} 超过原视频时长 {FormatTimestamp(inputDuration)}。");
+        }
+
+        Directory.CreateDirectory(workdir);
+        var progressPlan = BuildProgressPlan(inputDuration, segments);
 
         var parts = new List<string>();
         var sourceFiles = new List<string> { inputVideo, outputVideo };
@@ -121,7 +151,7 @@ public sealed class VideoPatcher
         var partIndex = 0;
         var progressIndex = 0;
         var sourcePartIndex = 0;
-        var sourcePartTotal = CountSourceParts(segments);
+        var sourcePartTotal = CountSourceParts(segments, inputDuration);
 
         foreach (var segment in segments)
         {
@@ -146,23 +176,26 @@ public sealed class VideoPatcher
 
             parts.Add(segment.PatchPath);
             sourceFiles.Add(segment.PatchPath);
-            cursorText = segment.Segment.End;
+            cursorText = FormatTimestamp(segment.EndTime);
             cursor = segment.EndTime;
         }
 
-        var tailFile = Path.Combine(workdir, SafeName(partIndex));
-        var tailProgressStep = progressPlan.Steps[progressIndex++];
-        ReportStatus($"正在生成原视频片段 {++sourcePartIndex}/{sourcePartTotal}");
-        await RunFfmpegAsync(BuildBaseArgs(config.Ffmpeg)
-            .Concat(new[]
-            {
-                "-i", inputVideo,
-                "-ss", cursorText,
-                "-c", "copy",
-                tailFile,
-            }), tailProgressStep, cancellationToken);
+        if (cursor < inputDuration)
+        {
+            var tailFile = Path.Combine(workdir, SafeName(partIndex));
+            var tailProgressStep = progressPlan.Steps[progressIndex++];
+            ReportStatus($"正在生成原视频片段 {++sourcePartIndex}/{sourcePartTotal}");
+            await RunFfmpegAsync(BuildBaseArgs(config.Ffmpeg)
+                .Concat(new[]
+                {
+                    "-i", inputVideo,
+                    "-ss", cursorText,
+                    "-c", "copy",
+                    tailFile,
+                }), tailProgressStep, cancellationToken);
 
-        parts.Add(tailFile);
+            parts.Add(tailFile);
+        }
 
         ReportStatus("正在准备拼接清单");
         var concatList = Path.Combine(workdir, "concat_list.txt");
@@ -191,6 +224,7 @@ public sealed class VideoPatcher
                 concatInputArgs,
                 outputVideo,
                 config.Ffmpeg,
+                videoCodec,
                 concatProgressStep,
                 cancellationToken);
         }
@@ -216,7 +250,6 @@ public sealed class VideoPatcher
         config.Segments = config.Segments
             .Where(segment =>
                 !string.IsNullOrWhiteSpace(segment.Start) ||
-                !string.IsNullOrWhiteSpace(segment.End) ||
                 !string.IsNullOrWhiteSpace(segment.Patch))
             .ToList();
 
@@ -234,22 +267,23 @@ public sealed class VideoPatcher
         {
             if (segment.StartTime >= segment.EndTime)
             {
-                throw new InvalidOperationException($"片段时间无效: {segment.Segment.Start} - {segment.Segment.End}");
+                throw new InvalidOperationException($"补丁片段时长无效: {segment.PatchPath}");
             }
 
             if (segment.StartTime < cursor)
             {
-                throw new InvalidOperationException($"片段时间重叠或倒序: {segment.Segment.Start} - {segment.Segment.End}");
+                throw new InvalidOperationException(
+                    $"补丁片段重叠: {FormatTimestamp(segment.StartTime)} 早于上一段结束时间 {FormatTimestamp(cursor)}。");
             }
 
             cursor = segment.EndTime;
         }
     }
 
-    private static int CountSourceParts(IReadOnlyList<SegmentWithTime> segments)
+    private static int CountSourceParts(IReadOnlyList<SegmentWithTime> segments, TimeSpan inputDuration)
     {
         var cursor = TimeSpan.Zero;
-        var count = 1;
+        var count = 0;
 
         foreach (var segment in segments)
         {
@@ -261,7 +295,7 @@ public sealed class VideoPatcher
             cursor = segment.EndTime;
         }
 
-        return count;
+        return count + (cursor < inputDuration ? 1 : 0);
     }
 
     private static TimeSpan ParseTimestamp(string value, string fieldName)
@@ -305,6 +339,12 @@ public sealed class VideoPatcher
         {
             return false;
         }
+    }
+
+    private static string FormatTimestamp(TimeSpan timestamp)
+    {
+        return FormattableString.Invariant(
+            $"{(long)timestamp.TotalHours:00}:{timestamp.Minutes:00}:{timestamp.Seconds:00}.{timestamp.Ticks % TimeSpan.TicksPerSecond / 10:000000}");
     }
 
     private static string ResolvePath(string baseDirectory, string path)
@@ -372,23 +412,10 @@ public sealed class VideoPatcher
         return fullPath.StartsWith(fullDirectory, StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task<ProgressPlan> BuildProgressPlanAsync(
-        string inputVideo,
-        IReadOnlyList<SegmentWithTime> segments,
-        CancellationToken cancellationToken)
+    private static ProgressPlan BuildProgressPlan(
+        TimeSpan inputDuration,
+        IReadOnlyList<SegmentWithTime> segments)
     {
-        _log("正在读取视频时长，用于计算真实进度。");
-
-        var inputDuration = await ProbeDurationAsync(inputVideo, cancellationToken);
-        var patchDurations = new Dictionary<string, TimeSpan>(StringComparer.OrdinalIgnoreCase);
-        foreach (var segment in segments)
-        {
-            if (!patchDurations.ContainsKey(segment.PatchPath))
-            {
-                patchDurations[segment.PatchPath] = await ProbeDurationAsync(segment.PatchPath, cancellationToken);
-            }
-        }
-
         var weightedSteps = new List<WeightedProgressStep>();
         var cursor = TimeSpan.Zero;
         var concatDuration = TimeSpan.Zero;
@@ -402,13 +429,16 @@ public sealed class VideoPatcher
                 concatDuration += duration;
             }
 
-            concatDuration += patchDurations[segment.PatchPath];
+            concatDuration += segment.EndTime - segment.StartTime;
             cursor = segment.EndTime;
         }
 
         var tailDuration = inputDuration > cursor ? inputDuration - cursor : TimeSpan.Zero;
-        weightedSteps.Add(new WeightedProgressStep(tailDuration));
-        concatDuration += tailDuration;
+        if (tailDuration > TimeSpan.Zero)
+        {
+            weightedSteps.Add(new WeightedProgressStep(tailDuration));
+            concatDuration += tailDuration;
+        }
         weightedSteps.Add(new WeightedProgressStep(concatDuration));
 
         return ProgressPlan.FromWeightedSteps(weightedSteps);
@@ -418,10 +448,12 @@ public sealed class VideoPatcher
         IReadOnlyList<string> concatInputArgs,
         string outputVideo,
         FfmpegConfig ffmpegConfig,
+        string videoCodec,
         ProgressStep progressStep,
         CancellationToken cancellationToken)
     {
-        var encoder = await SelectReEncodeVideoEncoderAsync(cancellationToken);
+        var cpuEncoder = videoCodec == VideoCodecs.H265 ? CpuHevcEncoder : CpuVideoEncoder;
+        var encoder = await SelectReEncodeVideoEncoderAsync(videoCodec, cancellationToken);
         _log($"重新编码使用视频编码器: {encoder.DisplayName} ({encoder.Name})");
         ReportStatus(BuildReEncodeStatus(encoder));
 
@@ -439,42 +471,39 @@ public sealed class VideoPatcher
                 (ffmpegConfig.Overwrite || !outputExistedBeforeAttempt))
         {
             ReportStatus("GPU 编码失败，正在回退 CPU 重新编码");
-            _log($"GPU 编码失败，回退到 CPU libx264。原因: {ex.Message}");
-            _selectedReEncodeVideoEncoder = CpuVideoEncoder;
+            _log($"GPU 编码失败，回退到 {cpuEncoder.DisplayName}。原因: {ex.Message}");
+
             DeletePartialOutputIfCreated(outputVideo, outputExistedBeforeAttempt);
             ReportProgress(progressStep.Start);
-            ReportStatus("正在重新编码输出（GPU 失败，已回退 CPU libx264）");
+            ReportStatus($"正在重新编码输出（GPU 失败，已回退 {cpuEncoder.DisplayName}）");
 
             await RunFfmpegAsync(
-                BuildReEncodeConcatArgs(concatInputArgs, CpuVideoEncoder, outputVideo),
+                BuildReEncodeConcatArgs(concatInputArgs, cpuEncoder, outputVideo),
                 progressStep,
                 cancellationToken);
         }
     }
 
-    private async Task<VideoEncoderProfile> SelectReEncodeVideoEncoderAsync(CancellationToken cancellationToken)
+    private async Task<VideoEncoderProfile> SelectReEncodeVideoEncoderAsync(
+        string videoCodec, CancellationToken cancellationToken)
     {
-        if (_selectedReEncodeVideoEncoder != null)
-        {
-            return _selectedReEncodeVideoEncoder;
-        }
-
-        _log("正在检测可用 GPU H.264 编码器。");
+        var isHevc = videoCodec == VideoCodecs.H265;
+        var hardwareEncoders = isHevc ? HardwareHevcEncoders : HardwareVideoEncoders;
+        var cpuEncoder = isHevc ? CpuHevcEncoder : CpuVideoEncoder;
+        _log($"正在检测可用 GPU {(isHevc ? "H.265" : "H.264")} 编码器。");
         ReportStatus("正在检测 GPU 硬件编码器");
-        foreach (var encoder in HardwareVideoEncoders)
+        foreach (var encoder in hardwareEncoders)
         {
             if (await CanUseVideoEncoderAsync(encoder, cancellationToken))
             {
-                _selectedReEncodeVideoEncoder = encoder;
                 _log($"已启用 GPU 编码器: {encoder.DisplayName} ({encoder.Name})");
                 return encoder;
             }
         }
 
-        _selectedReEncodeVideoEncoder = CpuVideoEncoder;
-        _log("未检测到可用 GPU 编码器，使用 CPU libx264。");
+        _log($"未检测到可用 GPU 编码器，使用 {cpuEncoder.DisplayName}。");
         ReportStatus("未检测到可用 GPU，准备使用 CPU 重新编码");
-        return CpuVideoEncoder;
+        return cpuEncoder;
     }
 
     private async Task<bool> CanUseVideoEncoderAsync(
@@ -553,6 +582,8 @@ public sealed class VideoPatcher
     {
         var args = concatInputArgs.ToList();
         args.AddRange(encoder.Arguments);
+        if (encoder.Name == "libx265" || encoder.Name.StartsWith("hevc_", StringComparison.Ordinal))
+            args.AddRange(["-tag:v", "hvc1"]);
         args.AddRange(["-c:a", "aac", outputVideo]);
         return args;
     }
@@ -561,7 +592,7 @@ public sealed class VideoPatcher
     {
         return encoder.HardwareAccelerated
             ? $"正在重新编码输出（GPU 硬件加速已启用：{encoder.DisplayName}）"
-            : "正在重新编码输出（未启用 GPU，使用 CPU libx264）";
+            : $"正在重新编码输出（未启用 GPU，使用 {encoder.DisplayName}）";
     }
 
     private void DeletePartialOutputIfCreated(string outputVideo, bool outputExistedBeforeAttempt)
@@ -599,38 +630,72 @@ public sealed class VideoPatcher
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
-        startInfo.ArgumentList.Add("-v");
-        startInfo.ArgumentList.Add("error");
-        startInfo.ArgumentList.Add("-show_entries");
-        startInfo.ArgumentList.Add("format=duration");
-        startInfo.ArgumentList.Add("-of");
-        startInfo.ArgumentList.Add("default=noprint_wrappers=1:nokey=1");
-        startInfo.ArgumentList.Add(videoPath);
+        foreach (var argument in new[]
+        {
+            "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=duration_ts,time_base,duration:format=duration",
+            "-of", "json", videoPath
+        })
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
 
         AddToolDirectoryToPath(startInfo, _ffprobePath);
-
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("无法启动 ffprobe。");
 
         var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);
-
-        var output = (await outputTask).Trim();
+        var output = await outputTask;
         var error = (await errorTask).Trim();
-
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException($"ffprobe 读取时长失败: {videoPath}\n{error}");
         }
 
-        if (!double.TryParse(output, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds) ||
-            seconds < 0)
+        using var result = JsonDocument.Parse(output);
+        if (!result.RootElement.TryGetProperty("streams", out var streams) ||
+            streams.GetArrayLength() == 0)
         {
-            throw new InvalidOperationException($"ffprobe 返回了无效时长: {videoPath}");
+            throw new InvalidOperationException($"视频文件中没有视频流: {videoPath}");
         }
 
-        return TimeSpan.FromSeconds(seconds);
+        var stream = streams[0];
+        decimal seconds = 0;
+        if (stream.TryGetProperty("duration_ts", out var durationTs) &&
+            durationTs.TryGetInt64(out var ticks) &&
+            stream.TryGetProperty("time_base", out var timeBase))
+        {
+            var parts = timeBase.GetString()?.Split('/');
+            if (parts?.Length == 2 &&
+                decimal.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var numerator) &&
+                decimal.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var denominator) &&
+                denominator > 0)
+            {
+                seconds = ticks * numerator / denominator;
+            }
+        }
+
+        if (seconds <= 0 && stream.TryGetProperty("duration", out var videoDuration))
+        {
+            decimal.TryParse(videoDuration.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out seconds);
+        }
+
+        if (seconds <= 0 && result.RootElement.TryGetProperty("format", out var format) &&
+            format.TryGetProperty("duration", out var formatDuration))
+        {
+            decimal.TryParse(formatDuration.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out seconds);
+            _log($"视频流没有独立时长，使用容器时长: {videoPath}");
+        }
+
+        if (seconds <= 0)
+        {
+            throw new InvalidOperationException($"ffprobe 返回了无效视频时长: {videoPath}");
+        }
+
+        return TimeSpan.FromTicks(checked((long)decimal.Round(
+            seconds * TimeSpan.TicksPerSecond, 0, MidpointRounding.AwayFromZero)));
     }
 
     private IEnumerable<string> BuildBaseArgs(FfmpegConfig ffmpegConfig)

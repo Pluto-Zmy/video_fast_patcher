@@ -11,23 +11,21 @@
 
   "concat": {
     "mode": "快速拼接",
-    "container": "mp4"
+    "container": "mp4",
+    "video_codec": "h264"
   },
 
   "segments": [
     {
       "start": "00:03:12",
-      "end": "00:03:18",
       "patch": "patch_01.mp4"
     },
     {
       "start": "00:15:40",
-      "end": "00:15:58",
       "patch": "patch_02.mp4"
     },
     {
       "start": "00:48:10",
-      "end": "00:48:15",
       "patch": "patch_03.mp4"
     }
   ]

@@ -93,10 +93,12 @@
                     Grid.Column="1"
                     Grid.ColumnSpan="2"
                     ColumnDefinitions="Auto,16,Auto,24,220,*"
-                    RowDefinitions="Auto">
+                    RowDefinitions="Auto,Auto" RowSpacing="8">
                     <CheckBox x:Name="OverwriteCheckBox" VerticalAlignment="Center" Content="覆盖输出" IsChecked="True" />
                     <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="拼接模式" />
-                    <ComboBox x:Name="ConcatModeComboBox" Grid.Column="4" Width="220" HorizontalAlignment="Left" />
+                    <ComboBox x:Name="ConcatModeComboBox" Grid.Column="4" Width="220" HorizontalAlignment="Left" SelectionChanged="ConcatMode_SelectionChanged" />
+                    <TextBlock Grid.Row="1" Grid.ColumnSpan="3" VerticalAlignment="Center" Text="输出编码（重新编码时）" />
+                    <ComboBox x:Name="VideoCodecComboBox" Grid.Row="1" Grid.Column="4" Width="220" HorizontalAlignment="Left" />
                 </Grid>
             </Grid>
         </Border>
@@ -139,18 +141,17 @@
                 <TextBlock
                     Grid.Row="1"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="开始时间和结束时间格式：时:分:秒，例如 00:03:12" />
+                    Text="开始时间格式：时:分:秒，例如 00:03:12；结束时间由补丁视频时长自动计算" />
 
                 <Border
                     Grid.Row="2"
                     Padding="12,8"
                     Background="{ThemeResource SubtleFillColorSecondaryBrush}"
                     CornerRadius="6">
-                    <Grid ColumnDefinitions="150,150,*,88" ColumnSpacing="10">
+                    <Grid ColumnDefinitions="150,*,88" ColumnSpacing="10">
                         <TextBlock FontWeight="SemiBold" Text="开始时间" />
-                        <TextBlock Grid.Column="1" FontWeight="SemiBold" Text="结束时间" />
-                        <TextBlock Grid.Column="2" FontWeight="SemiBold" Text="补丁视频" />
-                        <TextBlock Grid.Column="3" FontWeight="SemiBold" Text="操作" />
+                        <TextBlock Grid.Column="1" FontWeight="SemiBold" Text="补丁视频" />
+                        <TextBlock Grid.Column="2" FontWeight="SemiBold" Text="操作" />
                     </Grid>
                 </Border>
 
@@ -165,20 +166,16 @@
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate>
-                            <Grid Padding="0,4" ColumnDefinitions="150,150,*,88" ColumnSpacing="10">
+                            <Grid Padding="0,4" ColumnDefinitions="150,*,88" ColumnSpacing="10">
                                 <TextBox
                                     PlaceholderText="时:分:秒"
                                     Text="{Binding Start, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                 <TextBox
                                     Grid.Column="1"
-                                    PlaceholderText="时:分:秒"
-                                    Text="{Binding End, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                <TextBox
-                                    Grid.Column="2"
                                     PlaceholderText="补丁视频路径"
                                     Text="{Binding Patch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                 <Button
-                                    Grid.Column="3"
+                                    Grid.Column="2"
                                     HorizontalAlignment="Stretch"
                                     Click="BrowsePatchForSegment_Click"
                                     Content="选择"
